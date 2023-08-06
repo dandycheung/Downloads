@@ -137,13 +137,9 @@ public class JsonListActivity extends AppCompatActivity {
             
             @Override
             public void onNext(JSONObject postInfo) {
-                JSONObject post = postInfo.getJSONObject("post");
                 mUid = postInfo.getStr("uid");
-                mMaxCursor = post.getLong("maxCursor");
-                mHasMore = post.getInt("hasMore");
-                
-                JSONArray data = post.getJSONArray("data");
-                addFirstPageDataToList(data);
+                mMaxCursor = 0L;
+                fetchData();
             }
             
             @Override
@@ -175,7 +171,7 @@ public class JsonListActivity extends AppCompatActivity {
         payload.put("max_cursor", mMaxCursor.toString());
         payload.put("locate_query", "false");
         payload.put("show_live_replay_strategy", "1");
-        payload.put("count", "10");
+        payload.put("count", "18");
         payload.put("publish_video_strategy_type", "2");
         payload.put("pc_client_type", "1");
         payload.put("version_code", "170400");
