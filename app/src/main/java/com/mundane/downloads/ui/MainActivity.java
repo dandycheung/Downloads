@@ -36,12 +36,12 @@ import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import org.jsoup.Connection;
+import org.jsoup.Connection.Response;
 import org.jsoup.Jsoup;
 
 public class MainActivity extends BaseActivity {
     
     private TextView mTvDownload;
-    
     
     private static final int REQUEST_CODE = 100;
     private TextView mTvAbout;
@@ -61,7 +61,7 @@ public class MainActivity extends BaseActivity {
         mTvDownload.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                download();
+                download2();
             }
         });
         mTvAbout.setOnClickListener(new OnClickListener() {
@@ -129,6 +129,115 @@ public class MainActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+    }
+    
+    private void downloadVideo2(String videoUrl, String videoTitle, ObservableEmitter<Integer> e) throws MyException {
+        try {
+            Connection.Response document = Jsoup.connect(videoUrl).ignoreContentType(true).maxBodySize(0).timeout(0).execute();
+            BufferedInputStream intputStream = document.bodyStream();
+            int contentLength = Integer.parseInt(document.header("Content-Length"));
+            File appDir = new File(Environment.getExternalStorageDirectory() + File.separator + Environment.DIRECTORY_DCIM + File.separator + "Camera" + File.separator);
+            if (!appDir.exists()) {
+                appDir.mkdirs();
+            }
+            File fileSavePath = new File(appDir, videoTitle + ".mp4");
+            // 如果保存文件夹不存在,那么则创建该文件夹
+            File fileParent = fileSavePath.getParentFile();
+            if (!fileParent.exists()) {
+                fileParent.mkdirs();
+            }
+            if (fileSavePath.exists()) { //如果文件存在，则删除原来的文件
+                fileSavePath.delete();
+            }
+            FileOutputStream fs = new FileOutputStream(fileSavePath);
+            byte[] buffer = new byte[8 * 1024];
+            int byteRead;
+            int count = 0;
+            while ((byteRead = intputStream.read(buffer)) != -1) {
+                fs.write(buffer, 0, byteRead);
+                count += byteRead;
+                int progress = (int) (count * 100.0 / contentLength);
+                e.onNext(progress);
+            }
+            intputStream.close();
+            fs.close();
+            RefreshUtil.scanFile(MainActivity.this, fileSavePath.getAbsolutePath());
+        } catch (Exception exception) {
+            exception.printStackTrace();
+            throw new MyException(exception.getMessage());
+        }
+    }
+    
+    private void download2() {
+        String clipboardData = ClipUtil.getClipboardData(this);
+        if (StringUtils.isEmpty(clipboardData)) {
+            T.show("剪切板内容为空");
+            return;
+        }
+        final String text = clipboardData;
+        Observable.create(new ObservableOnSubscribe<Integer>() {
+            @Override
+            public void subscribe(ObservableEmitter<Integer> e) throws Exception {
+                LogUtils.d("currentThread = " + Thread.currentThread().getName());
+                //1、“异步线程” 执行耗时操作
+                //2、“执行完毕” 调用onNext触发回调，通知观察者
+                String url = RegexUtil.getUrl(text);
+                LogUtils.d("url = " + url);
+                Response response = Jsoup.connect("https://tenapi.cn/v2/video?url=" + url).execute();
+                String responseBody = response.body();
+                LogUtils.d("body = " + responseBody);
+                JSONObject jsonObject = new JSONObject(responseBody);
+                Integer code = jsonObject.getInt("code");
+                String msg = jsonObject.getStr("msg");
+                if (code != 200) {
+                    e.onError(new MyException(msg));
+                    e.onComplete();
+                    return;
+                }
+                JSONObject data = jsonObject.getJSONObject("data");
+                String title = data.getStr("title");
+                String videoUrl = data.getStr("url");
+                videoUrl = ParseUtil.getPureVideoUrl(videoUrl);
+                LogUtils.d("videoUrl = " + videoUrl);
+                title = RegexUtil.getValidTitle(title);
+                try {
+                    downloadVideo2(videoUrl, title, e);
+                } catch (MyException e1) {
+                    e.onError(e1);
+                }
+                e.onComplete();
+            }
+        }).subscribeOn(Schedulers.io()).observeOn(AndroidSchedulers.mainThread()).subscribe(new Observer<Integer>() {
+            @Override
+            public void onSubscribe(Disposable d) {
+                // 订阅线程  订阅的那一刻在订阅线程中执行
+                LogUtils.d("currentThread = " + Thread.currentThread().getName());
+                if (mProgressDialogFragment == null) {
+                    createAndShowDialog();
+                }
+            }
+            
+            @Override
+            public void onNext(Integer progress) {
+                // “主线程”执行的方法
+                updateProgress(progress);
+            }
+            
+            @Override
+            public void onError(Throwable e) {
+                // "主线程"执行的方法
+                e.printStackTrace();
+                hideDialog();
+            }
+            
+            @Override
+            public void onComplete() {
+                // "主线程"执行的方法
+                LogUtils.d("onComplete");
+                T.show("下载完成");
+                hideDialog();
+            }
+        });
     }
     
     private void download() {
@@ -206,9 +315,6 @@ public class MainActivity extends BaseActivity {
         }
     }
     
-    
-    
-    
     public void downloadVideo(String awesomeUrl, ObservableEmitter<Integer> observableEmitter) {
         JSONObject data = ParseUtil.getData(awesomeUrl);
         
@@ -231,7 +337,6 @@ public class MainActivity extends BaseActivity {
             observableEmitter.onError(e);
         }
         observableEmitter.onComplete();
-    
     }
     
     private void download(JSONObject awesomeInfo, ObservableEmitter<Integer> e) throws MyException {

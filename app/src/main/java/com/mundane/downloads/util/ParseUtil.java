@@ -140,4 +140,8 @@ public class ParseUtil {
         }
         return null;
     }
+    
+    public static String getPureVideoUrl(String url) {
+       return url.replaceAll("\\/", "/");
+    }
 }
